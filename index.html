@@ -12,10 +12,10 @@
   canvas{display:block;width:100%;height:100%}
   #hint{position:absolute;left:0;right:0;bottom:max(28px,env(safe-area-inset-bottom));text-align:center;color:white;
         font-weight:bold;font-size:15px;text-shadow:2px 2px #0008;pointer-events:none}
-  #sound{position:absolute;right:14px;top:max(14px,env(safe-area-inset-top));z-index:5;border:0;border-radius:50%;
+  #sound{position:absolute;right:14px;top:calc(max(14px,env(safe-area-inset-top)) + 48px);z-index:5;border:0;border-radius:50%;
          width:42px;height:42px;font-size:20px;background:#fff9;box-shadow:0 2px 5px #0004}
 
-  #topbar{position:absolute;z-index:6;top:max(12px,env(safe-area-inset-top));left:12px;right:64px;display:flex;gap:8px;align-items:center;pointer-events:none}
+  #topbar{position:absolute;z-index:6;top:calc(max(12px,env(safe-area-inset-top)) + 48px);left:12px;right:64px;display:flex;gap:8px;align-items:center;pointer-events:none}
   .ui-btn{pointer-events:auto;border:0;border-radius:12px;padding:10px 12px;font-weight:bold;background:#fffE;color:#17424a;box-shadow:0 2px 6px #0002;font-size:13px}
   #playerBadge{pointer-events:none;background:#0005;color:white;padding:8px 10px;border-radius:10px;font-size:13px;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .overlay{position:absolute;inset:0;z-index:10;background:#062d35b8;display:flex;align-items:center;justify-content:center;padding:20px}
@@ -49,7 +49,7 @@
       <input id="playerName" maxlength="24" autocomplete="nickname" placeholder="A neved (pl. Anna)">
       <button id="saveName" class="primary">Játék indítása</button>
       <button id="nameLeaderboard" class="secondary">Ranglista megtekintése</button>
-      <p id="connectionNote" class="small-note">Az online ranglista beállításra vár; addig a játék helyben működik.</p>
+      <p id="connectionNote" class="small-note">Kapcsolódás az online ranglistához…</p>
     </div>
   </div>
 
@@ -79,8 +79,8 @@ let state='ready', score=0,best=+localStorage.flappyBest||0;
 let playerName=localStorage.flappyPlayerName||'';
 let scoreSubmitted=false;
 // Supabase beállítás: a projekt URL-t és a publikus anon kulcsot illeszd be.
-const SUPABASE_URL='https://YOUR-PROJECT.supabase.co';
-const SUPABASE_ANON_KEY='YOUR-SUPABASE-ANON-KEY';
+const SUPABASE_URL='https://tbyjcwvdsqljimgvfydg.supabase.co';
+const SUPABASE_ANON_KEY='sb_publishable_qe3Y3zDyqC2HE7PhW4rYJw_snUoNt4q';
 const ONLINE_ENABLED=!SUPABASE_URL.includes('YOUR-PROJECT')&&!SUPABASE_ANON_KEY.includes('YOUR-SUPABASE');
 let bird,pipes,last=0,spawn=0, muted=false;
 
