@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Családi Flappy Bird bajnokság</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#70c5ce;font-family:Arial,sans-serif;touch-action:none}
+  body{display:flex;align-items:center;justify-content:center}
+  #game{position:relative;width:100vw;height:100vh;max-width:520px;overflow:hidden;background:#70c5ce}
+  canvas{display:block;width:100%;height:100%}
+  #hint{position:absolute;left:0;right:0;bottom:max(28px,env(safe-area-inset-bottom));text-align:center;color:white;
+        font-weight:bold;font-size:15px;text-shadow:2px 2px #0008;pointer-events:none}
+  #sound{position:absolute;right:14px;top:max(14px,env(safe-area-inset-top));z-index:5;border:0;border-radius:50%;
+         width:42px;height:42px;font-size:20px;background:#fff9;box-shadow:0 2px 5px #0004}
+
+  #topbar{position:absolute;z-index:6;top:max(12px,env(safe-area-inset-top));left:12px;right:64px;display:flex;gap:8px;align-items:center;pointer-events:none}
+  .ui-btn{pointer-events:auto;border:0;border-radius:12px;padding:10px 12px;font-weight:bold;background:#fffE;color:#17424a;box-shadow:0 2px 6px #0002;font-size:13px}
+  #playerBadge{pointer-events:none;background:#0005;color:white;padding:8px 10px;border-radius:10px;font-size:13px;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .overlay{position:absolute;inset:0;z-index:10;background:#062d35b8;display:flex;align-items:center;justify-content:center;padding:20px}
+  .dialog{width:min(100%,360px);max-height:90%;overflow:auto;background:#fff;border-radius:20px;padding:22px;box-shadow:0 12px 40px #0005;color:#16383d;touch-action:pan-y}
+  .dialog h2{margin:0 0 8px;font-size:24px}.dialog p{margin:0 0 16px;line-height:1.4;color:#476166;font-size:14px}
+  .dialog input{width:100%;padding:13px 12px;border:1px solid #b7cdd0;border-radius:10px;font-size:16px;margin-bottom:10px}
+  .primary{width:100%;border:0;border-radius:10px;padding:13px;background:#188c78;color:white;font-weight:bold;font-size:16px;margin-top:4px}
+  .secondary{width:100%;border:1px solid #b7cdd0;border-radius:10px;padding:11px;background:white;color:#16383d;font-weight:bold;font-size:14px;margin-top:8px}
+  #leaderRows{margin:10px 0;max-height:48vh;overflow:auto}
+  .leader-row{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:8px;align-items:center;padding:10px 6px;border-bottom:1px solid #e5eeee;font-size:14px}
+  .leader-row .rank{font-weight:bold;color:#188c78}.leader-row .nm{overflow-wrap:anywhere}.leader-row .pts{font-weight:bold;font-variant-numeric:tabular-nums}
+  .small-note{font-size:12px!important;color:#637b7f!important;margin-top:10px!important}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div id="game">
+  <canvas id="c"></canvas>
+  <div id="topbar">
+    <span id="playerBadge">Játékos: –</span>
+    <button id="changeName" class="ui-btn">Név</button>
+    <button id="showLeaderboard" class="ui-btn">🏆 Ranglista</button>
+  </div>
+  <button id="sound" aria-label="Hang">🔊</button>
+  <div id="hint">Érints meg bárhol a repüléshez!</div>
+
+  <div id="nameOverlay" class="overlay">
+    <div class="dialog">
+      <h2>🐤 Családi Flappy Bird</h2>
+      <p>Add meg a neved, és indulhat a verseny! Az eredményed felkerülhet a közös online ranglistára.</p>
+      <input id="playerName" maxlength="24" autocomplete="nickname" placeholder="A neved (pl. Anna)">
+      <button id="saveName" class="primary">Játék indítása</button>
+      <button id="nameLeaderboard" class="secondary">Ranglista megtekintése</button>
+      <p id="connectionNote" class="small-note">Az online ranglista beállításra vár; addig a játék helyben működik.</p>
+    </div>
+  </div>
+
+  <div id="leaderboardOverlay" class="overlay" hidden>
+    <div class="dialog">
+      <h2>🏆 Családi ranglista</h2>
+      <p>A játékosok legjobb eredményei.</p>
+      <div id="leaderRows"><p>Ranglista betöltése…</p></div>
+      <button id="refreshLeaderboard" class="secondary">Frissítés</button>
+      <button id="closeLeaderboard" class="primary">Vissza a játékhoz</button>
+      <p id="leaderboardNote" class="small-note"></p>
+    </div>
+  </div>
+</div>
+<script>
+const canvas=document.getElementById('c'), ctx=canvas.getContext('2d');
+const game=document.getElementById('game'), hint=document.getElementById('hint');
+let W,H,dpr,scale,ground;
+function resize(){
+  W=game.clientWidth; H=game.clientHeight; dpr=Math.min(devicePixelRatio||1,2);
+  canvas.width=W*dpr; canvas.height=H*dpr; ctx.setTransform(dpr,0,0,dpr,0,0);
+  scale=Math.max(0.75,Math.min(1.25,W/390)); ground=H-Math.max(70,82*scale);
+}
+addEventListener('resize',resize); resize();
+
+let state='ready', score=0,best=+localStorage.flappyBest||0;
+let playerName=localStorage.flappyPlayerName||'';
+let scoreSubmitted=false;
+// Supabase beállítás: a projekt URL-t és a publikus anon kulcsot illeszd be.
+const SUPABASE_URL='https://YOUR-PROJECT.supabase.co';
+const SUPABASE_ANON_KEY='YOUR-SUPABASE-ANON-KEY';
+const ONLINE_ENABLED=!SUPABASE_URL.includes('YOUR-PROJECT')&&!SUPABASE_ANON_KEY.includes('YOUR-SUPABASE');
+let bird,pipes,last=0,spawn=0, muted=false;
+
+const nameOverlay=document.getElementById('nameOverlay');
+const leaderboardOverlay=document.getElementById('leaderboardOverlay');
+const nameInput=document.getElementById('playerName');
+const playerBadge=document.getElementById('playerBadge');
+const connectionNote=document.getElementById('connectionNote');
+const leaderboardNote=document.getElementById('leaderboardNote');
+const leaderRows=document.getElementById('leaderRows');
+
+function updatePlayerBadge(){playerBadge.textContent=playerName?'Játékos: '+playerName:'Játékos: –';}
+function cleanName(value){return String(value||'').trim().replace(/\s+/g,' ').slice(0,24);}
+function showNameDialog(){nameInput.value=playerName;nameOverlay.hidden=false;setTimeout(()=>nameInput.focus(),50);}
+function startWithName(){
+  const n=cleanName(nameInput.value);
+  if(!n){nameInput.focus();nameInput.placeholder='Kérlek, add meg a neved!';return;}
+  playerName=n;localStorage.flappyPlayerName=n;updatePlayerBadge();nameOverlay.hidden=true;
+  reset();
+  if(ONLINE_ENABLED) connectionNote.textContent='Online ranglista bekapcsolva.';
+}
+async function apiRequest(path,options={}){
+  if(!ONLINE_ENABLED)throw new Error('Az online adatbázis még nincs beállítva.');
+  const response=await fetch(SUPABASE_URL.replace(/\/$/, '')+'/rest/v1/'+path,{
+    ...options,headers:{'apikey':SUPABASE_ANON_KEY,'Authorization':'Bearer '+SUPABASE_ANON_KEY,'Content-Type':'application/json',...(options.headers||{})}
+  });
+  if(!response.ok)throw new Error('Adatbázishiba ('+response.status+'): '+(await response.text()).slice(0,180));
+  if(response.status===204)return null;
+  return response.json();
+}
+async function submitScore(){
+  if(scoreSubmitted||!playerName||score<=0)return;
+  scoreSubmitted=true;
+  // Helyi rekord mentése akkor is, ha az online szolgáltatás nincs beállítva.
+  const localScores=JSON.parse(localStorage.flappyLocalScores||'[]');
+  localScores.push({player_name:playerName,score,created_at:new Date().toISOString()});
+  localStorage.flappyLocalScores=JSON.stringify(localScores.slice(-300));
+  if(!ONLINE_ENABLED)return;
+  try{
+    await apiRequest('scores',{method:'POST',headers:{'Prefer':'return=minimal'},body:JSON.stringify({player_name:playerName,score})});
+    hint.textContent='Játék vége – eredmény mentve! Érints meg az új játékhoz.';
+  }catch(err){
+    console.warn(err);
+    hint.textContent='Játék vége – az online mentés nem sikerült.';
+  }
+}
+function renderLeaderboard(rows,online){
+  const bestByName=new Map();
+  for(const r of rows){
+    const key=cleanName(r.player_name).toLocaleLowerCase('hu');
+    if(!key)continue;
+    const old=bestByName.get(key);
+    if(!old||Number(r.score)>Number(old.score))bestByName.set(key,{...r,player_name:cleanName(r.player_name)});
+  }
+  const sorted=[...bestByName.values()].sort((a,b)=>Number(b.score)-Number(a.score)||String(a.player_name).localeCompare(String(b.player_name),'hu')).slice(0,100);
+  leaderRows.innerHTML='';
+  if(!sorted.length){leaderRows.innerHTML='<p>Még nincs rögzített pontszám. Játssz egy kört!</p>';return;}
+  sorted.forEach((r,i)=>{
+    const row=document.createElement('div');row.className='leader-row';
+    const rank=document.createElement('span');rank.className='rank';rank.textContent=i===0?'🥇':i===1?'🥈':i===2?'🥉':String(i+1)+'.';
+    const nm=document.createElement('span');nm.className='nm';nm.textContent=r.player_name;
+    const pts=document.createElement('span');pts.className='pts';pts.textContent=String(r.score)+' pont';
+    row.append(rank,nm,pts);leaderRows.appendChild(row);
+  });
+}
+async function openLeaderboard(){
+  leaderboardOverlay.hidden=false;leaderRows.innerHTML='<p>Ranglista betöltése…</p>';leaderboardNote.textContent='';
+  try{
+    if(ONLINE_ENABLED){
+      const rows=await apiRequest('scores?select=player_name,score,created_at&order=score.desc&limit=1000');
+      renderLeaderboard(rows,true);leaderboardNote.textContent='Online ranglista – a frissítéshez nyomd meg a Frissítés gombot.';
+    }else{
+      renderLeaderboard(JSON.parse(localStorage.flappyLocalScores||'[]'),false);
+      leaderboardNote.textContent='Ez jelenleg csak ezen az eszközön tárolt lista. Az online ranglistához állítsd be a Supabase URL-t és anon kulcsot.';
+    }
+  }catch(err){
+    renderLeaderboard(JSON.parse(localStorage.flappyLocalScores||'[]'),false);
+    leaderboardNote.textContent='Az online ranglista nem érhető el; a helyi eredményeket mutatjuk. '+err.message;
+  }
+}
+document.getElementById('saveName').addEventListener('click',startWithName);
+nameInput.addEventListener('keydown',e=>{if(e.key==='Enter')startWithName();});
+document.getElementById('changeName').addEventListener('click',e=>{e.stopPropagation();showNameDialog();});
+document.getElementById('showLeaderboard').addEventListener('click',e=>{e.stopPropagation();openLeaderboard();});
+document.getElementById('nameLeaderboard').addEventListener('click',e=>{e.stopPropagation();nameOverlay.hidden=true;openLeaderboard();});
+document.getElementById('refreshLeaderboard').addEventListener('click',e=>{e.stopPropagation();openLeaderboard();});
+document.getElementById('closeLeaderboard').addEventListener('click',e=>{e.stopPropagation();leaderboardOverlay.hidden=true;});
+[nameOverlay,leaderboardOverlay].forEach(el=>el.addEventListener('pointerdown',e=>e.stopPropagation()));
+updatePlayerBadge();
+if(playerName){nameInput.value=playerName;nameOverlay.hidden=true;}else{nameOverlay.hidden=false;}
+
+function reset(){
+  bird={x:W*.28,y:H*.43,r:16*scale,vy:0,rot:0};
+  pipes=[];score=0;spawn=0;state='ready';hint.textContent='Érints meg bárhol a repüléshez!';
+}
+reset();
+
+function flap(){
+  if(state==='dead') reset();
+  if(state==='ready') state='playing';
+  if(state==='playing'){bird.vy=-390*scale; hint.textContent=''; beep(520,.045)}
+}
+function beep(freq,dur){
+  if(muted)return;
+  try{
+    const a=new (AudioContext||webkitAudioContext)(),o=a.createOscillator(),g=a.createGain();
+    o.frequency.value=freq;o.type='square';g.gain.setValueAtTime(.035,a.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001,a.currentTime+dur);o.connect(g);g.connect(a.destination);o.start();o.stop(a.currentTime+dur);
+  }catch(e){}
+}
+addEventListener('pointerdown',e=>{
+  if(e.target.closest('button,input,.dialog,.overlay')||e.target.id==='sound')return;
+  if(!nameOverlay.hidden||!leaderboardOverlay.hidden)return;
+  if(!playerName){showNameDialog();return;}
+  flap();
+});
+document.getElementById('sound').onclick=e=>{e.stopPropagation();muted=!muted;e.currentTarget.textContent=muted?'🔇':'🔊'};
+
+function addPipe(){
+  const gap=Math.max(145*scale, H*.22), margin=55*scale;
+  const minTop=margin, maxTop=ground-gap-margin;
+  const top=minTop+Math.random()*Math.max(1,maxTop-minTop);
+  pipes.push({x:W+35,w:62*scale,top,gap,passed:false});
+}
+function collide(){
+  const b=bird;
+  if(b.y+b.r>ground || b.y-b.r<0)return true;
+  for(const p of pipes){
+    if(b.x+b.r>p.x && b.x-b.r<p.x+p.w &&
+      (b.y-b.r<p.top || b.y+b.r>p.top+p.gap)) return true;
+  }
+  return false;
+}
+function update(dt){
+  if(state!=='playing')return;
+  bird.vy+=1100*scale*dt; bird.y+=bird.vy*dt;
+  bird.rot=Math.max(-.5,Math.min(1.25,bird.vy/600));
+  spawn-=dt;
+  if(spawn<=0){addPipe();spawn=.0+1.55}
+  const speed=190*scale;
+  for(const p of pipes){
+    p.x-=speed*dt;
+    if(!p.passed&&p.x+p.w<bird.x){p.passed=true;score++;beep(780,.06);if(score>best){best=score;localStorage.flappyBest=best}}
+  }
+  pipes=pipes.filter(p=>p.x+p.w>-10);
+  if(collide()){state='dead';hint.textContent='Érints meg az újrakezdéshez!';beep(160,.18);submitScore()}
+}
+function rect(x,y,w,h,r=0){
+  ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill();
+}
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  // sky
+  const sky=ctx.createLinearGradient(0,0,0,H);sky.addColorStop(0,'#70c5ce');sky.addColorStop(1,'#b9edf0');
+  ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);
+  // clouds
+  ctx.fillStyle='#fff8';
+  for(let i=0;i<4;i++){let x=((i*190+40)-(performance.now()/70)%250);let y=70+i*75;
+    ctx.beginPath();ctx.arc(x,y,22,0,7);ctx.arc(x+25,y-8,29,0,7);ctx.arc(x+55,y,20,0,7);ctx.fill();}
+  // pipes
+  for(const p of pipes){
+    drawPipe(p.x,p.top,p.w,-1); drawPipe(p.x,p.top+p.gap,p.w,1);
+  }
+  // ground
+  ctx.fillStyle='#ded895';ctx.fillRect(0,ground,W,H-ground);
+  ctx.fillStyle='#74bf2b';ctx.fillRect(0,ground,W,12);
+  ctx.fillStyle='#5b9f25';for(let x=-20;x<W+20;x+=28)ctx.fillRect(x,ground+12,15,5);
+  drawBird();
+  // score
+  ctx.textAlign='center';ctx.font=`bold ${44*scale}px Arial`;
+  ctx.lineWidth=5;ctx.strokeStyle='#0008';ctx.strokeText(score,W/2,72*scale);ctx.fillStyle='#fff';ctx.fillText(score,W/2,72*scale);
+  if(state==='ready'||state==='dead') panel();
+}
+function drawPipe(x,y,w,dir){
+  const capH=22*scale, capW=w+12*scale, cx=x-6*scale;
+  ctx.fillStyle='#4ec13a';
+  if(dir<0){
+    // FELSŐ CSŐ: a képernyő TETEJÉTŐL lefelé tart, a szája a rés felé néz.
+    const bodyBottom=Math.max(0,y-capH);
+    rect(x,0,w,bodyBottom,4);
+    ctx.fillStyle='#75db4e';ctx.fillRect(x+7,0,10,bodyBottom);
+    ctx.fillStyle='#328d2c';ctx.fillRect(x+w-9,0,7,bodyBottom);
+    ctx.fillStyle='#4ec13a';rect(cx,y-capH,capW,capH,4);
+    ctx.fillStyle='#75db4e';ctx.fillRect(cx+8,y-capH+4,10,capH-8);
+  }else{
+    // ALSÓ CSŐ: a rés aljától a talajig tart.
+    const bodyTop=y+capH;
+    ctx.fillStyle='#4ec13a';rect(x,bodyTop,w,Math.max(0,ground-bodyTop),4);
+    ctx.fillStyle='#75db4e';ctx.fillRect(x+7,bodyTop,10,Math.max(0,ground-bodyTop));
+    ctx.fillStyle='#328d2c';ctx.fillRect(x+w-9,bodyTop,7,Math.max(0,ground-bodyTop));
+    ctx.fillStyle='#4ec13a';rect(cx,y,capW,capH,4);
+    ctx.fillStyle='#75db4e';ctx.fillRect(cx+8,y+4,10,capH-8);
+  }
+}
+function drawBird(){
+  ctx.save();ctx.translate(bird.x,bird.y);ctx.rotate(bird.rot);
+  ctx.fillStyle='#f7d13a';ctx.strokeStyle='#8b641d';ctx.lineWidth=2;
+  ctx.beginPath();ctx.arc(0,0,bird.r,0,7);ctx.fill();ctx.stroke();
+  ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(6,-6,6,0,7);ctx.fill();ctx.stroke();
+  ctx.fillStyle='#111';ctx.beginPath();ctx.arc(8,-6,2.5,0,7);ctx.fill();
+  ctx.fillStyle='#f28b2e';ctx.beginPath();ctx.moveTo(12,0);ctx.lineTo(27,5);ctx.lineTo(12,8);ctx.closePath();ctx.fill();ctx.stroke();
+  ctx.fillStyle='#e9b82c';ctx.beginPath();ctx.ellipse(-5,7,12,6,.3,0,7);ctx.fill();ctx.stroke();
+  ctx.restore();
+}
+function panel(){
+  ctx.fillStyle='#0006';rect(W*.1,H*.28,W*.8,170*scale,18);
+  ctx.textAlign='center';ctx.font=`bold ${30*scale}px Arial`;ctx.fillStyle='#fff';
+  ctx.fillText(state==='ready'?'FLAPPY BIRD':'GAME OVER',W/2,H*.36);
+  ctx.font=`bold ${22*scale}px Arial`;ctx.fillText(`Pont: ${score}`,W/2,H*.43);
+  ctx.font=`${18*scale}px Arial`;ctx.fillText(`Rekord: ${best}`,W/2,H*.49);
+  ctx.font=`bold ${17*scale}px Arial`;ctx.fillText(state==='ready'?'Érintés = ugrás':'Érintés = új játék',W/2,H*.57);
+}
+function loop(t){let dt=Math.min(.035,(t-last)/1000||0);last=t;update(dt);draw();requestAnimationFrame(loop)}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
