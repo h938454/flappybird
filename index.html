@@ -123,8 +123,8 @@ async function submitScore(){
     await apiRequest('scores',{method:'POST',headers:{'Prefer':'return=minimal'},body:JSON.stringify({player_name:playerName,score})});
     hint.textContent='Játék vége – eredmény mentve! Érints meg az új játékhoz.';
   }catch(err){
-    console.warn(err);
-    hint.textContent='Játék vége – az online mentés nem sikerült.';
+    console.error('Flappy Bird eredménybeküldési hiba:',err);
+    hint.textContent='Játék vége – az online mentés nem sikerült. Nézd meg a ranglistát vagy próbáld újra a következő körben.';
   }
 }
 function renderLeaderboard(rows,online){
@@ -173,6 +173,8 @@ updatePlayerBadge();
 if(playerName){nameInput.value=playerName;nameOverlay.hidden=true;}else{nameOverlay.hidden=false;}
 
 function reset(){
+  // Minden új menetnél engedélyezzük az eredmény egyszeri beküldését.
+  scoreSubmitted=false;
   bird={x:W*.28,y:H*.43,r:16*scale,vy:0,rot:0};
   pipes=[];score=0;spawn=0;state='ready';hint.textContent='Érints meg bárhol a repüléshez!';
 }
